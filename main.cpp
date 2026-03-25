@@ -22,11 +22,13 @@ int main(int argc, char *argv[])
     // This functionality is in place to ensure the correct IBAN information and
     // a reasonable transfer amount are requested.
 
-    // Uncomment the this part from being a comment when it is run for the first time for creating the database:
-//    database *db = new database();
-//    db->initial_database_definition();
-//    delete db;
+    // 先实例化 QApplication，
     QApplication a(argc, argv);
+
+    // 如果没库会自动建，如果有库会自动连
+    // 不需要在这里显式 new，可以在 MainWindow 内部去实例化
+    database db;
+
     MainWindow w;
     w.show();
     return a.exec();

@@ -1,110 +1,108 @@
-// https://github.com/Enderceliik
-// Ender CELIK
 
 #include "database.h"
 QSqlDatabase database::sqliteDatabase;
 database::database() {
-    if (!sqliteDatabase.isValid()) {
-        sqliteDatabase = QSqlDatabase::addDatabase("QSQLITE");
-        sqliteDatabase.setDatabaseName("banking_automation_sqlite_database.db");
 
-        if (!sqliteDatabase.open()) {
-            qDebug() << "The database could not be opened.";
+        QString dbName = "banking_automation_sqlite_database.db";
+        bool isNew = !QFile::exists(dbName); // 检测数据库文件是否存在
+
+        if (!sqliteDatabase.isValid()) {
+            sqliteDatabase = QSqlDatabase::addDatabase("QSQLITE");
+            sqliteDatabase.setDatabaseName(dbName);
         }
-    }
+
+        if (sqliteDatabase.open()) {
+            if (isNew) {
+                qDebug() << "检测到数据库不存在，正在执行首次初始化...";
+                initial_database_definition(); // 仅在文件不存在时调用
+            }
+        } else {
+            qDebug() << "无法打开数据库:" << sqliteDatabase.lastError().text();
+        }
 }
+
 database::~database() {
     sqliteDatabase.close();
 }
+
 void database::initial_database_definition()
 {
+    if (!sqliteDatabase.isOpen()) {
+        if (!sqliteDatabase.open()) {
+            qDebug() << "无法打开数据库进行初始化:" << sqliteDatabase.lastError().text();
+            return;
+        }
+    }
+
     QSqlQuery query(sqliteDatabase);
-    if (!sqliteDatabase.open()) {
-        sqliteDatabase.open();
+
+    // 1. 使用 IF NOT EXISTS 建表，防止重复创建报错
+    QString createUsersTable =
+        "CREATE TABLE IF NOT EXISTS users ("
+        "userID INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "password VARCHAR(16),"
+        "name VARCHAR(50),"
+        "surname VARCHAR(50),"
+        "balance DOUBLE,"
+        "Iban VARCHAR(26),"
+        "userType INT"
+        ");";
+
+    if(!query.exec(createUsersTable)) {
+        qDebug() << "创建 users 表失败:" << query.lastError().text();
     }
-    query.prepare("CREATE TABLE users ("
-                  "userID INTEGER PRIMARY KEY AUTOINCREMENT,"
-                  "password VARCHAR(16),"
-                  "name VARCHAR(50),"
-                  "surname VARCHAR(50),"
-                  "balance DOUBLE,"
-                  "Iban VARCHAR(26),"
-                  "userType INT"
-                  ");");
-    if(query.exec())
-    {
-        qDebug() << "users table CREATED succesfully!";
+
+    QString createTransactionsTable =
+        "CREATE TABLE IF NOT EXISTS transactions ("
+        "transactionID INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "transactionDate DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "amountTransferred DOUBLE,"
+        "senderIban VARCHAR(26),"
+        "receivingPartyIban VARCHAR(26)"
+        ");";
+
+    if(!query.exec(createTransactionsTable)) {
+        qDebug() << "创建 transactions 表失败:" << query.lastError().text();
     }
-    query.prepare("CREATE TABLE transactions ("
-                  "transactionID INTEGER PRIMARY KEY AUTOINCREMENT,"
-                  "transactionDate DATETIME DEFAULT CURRENT_TIMESTAMP,"
-                  "amountTransferred DOUBLE,"
-                  "senderIban VARCHAR(26),"
-                  "receivingPartyIban VARCHAR(26)"
-//                  "FOREIGN KEY(senderID) REFERENCES users(userID),"
-//                  "FOREIGN KEY(receivingPartyID) REFERENCES users(userID)"
-                  ");");
-    if(query.exec())
-    {
-        qDebug() << "transactions table CREATED succesfully!";
-    }
-    else
-    {
-        qDebug() << query.lastError().text()  + " transactions";
-    }
-    queryString = QString("INSERT INTO users (password, "
-                          "name, "
-                          "surname, "
-                          "balance, "
-                          "Iban, "
-                          "userType) "
-                          "values ('%1', '%2', '%3', %4, '%5', %6);")
-                      .arg("159*")
-                      .arg("Ender")
-                      .arg("Çelik")
-                      .arg(19500)
-                      .arg("TR 29296161")
-                      .arg(0);
-    query.prepare(queryString);
-    if(query.exec())
-    {
-        qDebug() << "users table INSERT succesfully!";
-    }
-    queryString = QString("INSERT INTO users (password, "
-                                  "name, "
-                                  "surname, "
-                                  "balance, "
-                                  "Iban, "
-                                  "userType) "
-                                  "values ('%1', '%2', '%3', %4, '%5', %6);")
-                              .arg("159-")
-                              .arg("Lokman")
-                              .arg("Pehlivan")
-                              .arg(42000)
-                              .arg("TR 42424242")
-                              .arg(0);
-    query.prepare(queryString);
-    if(query.exec())
-    {
-        qDebug() << "users table INSERT 2 succesfully!";
-    }
-    queryString = QString("INSERT INTO users (password, "
-                          "name, "
-                          "surname, "
-                          "balance, "
-                          "Iban, "
-                          "userType) "
-                          "values ('%1', '%2', '%3', %4, '%5', %6);")
-                      .arg("654")
-                      .arg("Ahmet")
-                      .arg("Alkaç")
-                      .arg(22000)
-                      .arg("TR 26262929")
-                      .arg(0);
-    query.prepare(queryString);
-    if(query.exec())
-    {
-        qDebug() << "users table INSERT 3 succesfully!";
+
+    // 2. 检查数据是否已经存在（幂等性检查）
+    query.exec("SELECT COUNT(*) FROM users");
+    if (query.next() && query.value(0).toInt() == 0) {
+        qDebug() << "检测到数据库为空，正在插入演示账号...";
+
+        // 使用事务确保初始数据插入的原子性
+        sqliteDatabase.transaction();
+
+        // 使用参数化查询插入初始数据（演示账号 1: 159*）
+        query.prepare("INSERT INTO users (password, name, surname, balance, Iban, userType) "
+                      "VALUES (?, ?, ?, ?, ?, ?)");
+
+        // 账号 1
+        query.addBindValue("159*");
+        query.addBindValue("Admin");
+        query.addBindValue("Ender");
+        query.addBindValue(5000.0);
+        query.addBindValue("TR123456789012345678901234");
+        query.addBindValue(1); // 管理员权限
+        query.exec();
+
+        // 账号 2
+        query.addBindValue("654");
+        query.addBindValue("User");
+        query.addBindValue("Demo");
+        query.addBindValue(1000.0);
+        query.addBindValue("TR000000000000000000000000");
+        query.addBindValue(0); // 普通用户
+        query.exec();
+
+        if (sqliteDatabase.commit()) {
+            qDebug() << "初始演示账号插入成功！";
+        } else {
+            sqliteDatabase.rollback();
+            qDebug() << "初始数据插入失败，已回滚。";
+        }
+    } else {
+        qDebug() << "数据库已存在记录，跳过初始化插入步骤。";
     }
 }
 
